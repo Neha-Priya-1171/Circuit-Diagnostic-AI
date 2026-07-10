@@ -1,0 +1,235 @@
+<style>
+  .hb-wrap { font-family: system-ui, -apple-system, sans-serif; max-width: 880px; margin: 0 auto; padding: 20px; color: #1a1a1a; }
+  .hb-title { font-size: 22px; margin-bottom: 4px; }
+  .hb-sub { color: #666; font-size: 13px; margin-bottom: 16px; line-height: 1.5; }
+  .hb-turn { border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  .hb-role { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: #888; margin-bottom: 6px; }
+  .hb-user { background: #fafafa; }
+  .hb-assistant { background: #f8fbff; }
+  .hb-text { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
+  .hb-analysis { margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px; }
+  .hb-check-row { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; margin-bottom: 4px; }
+  .hb-pass { color: #16a34a; font-weight: 700; }
+  .hb-fail { color: #dc2626; font-weight: 700; }
+  .hb-na { color: #999; font-weight: 700; }
+  .hb-hyplist { font-size: 12px; background: #fff; border: 1px solid #e5e5e5; border-radius: 6px; padding: 8px; margin: 6px 0; }
+  .hb-input-row { display: flex; gap: 8px; margin-top: 6px; }
+  .hb-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; font-family: inherit; }
+  .hb-btn { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 10px 16px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .hb-btn:disabled { background: #93b8f5; cursor: default; }
+  .hb-btn-secondary { background: #6b7280; }
+  .hb-btn-green { background: #16a34a; }
+  .hb-toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+  .hb-loading { color: #888; font-size: 13px; font-style: italic; }
+</style>
+
+<div class="hb-wrap">
+  <div class="hb-title">Feature B — Hypothesis Display Sync Test (T7 session)</div>
+  <div class="hb-sub">
+    Runs a real stateful diagnostic session against Claude (stand-in for Llama-3.3-70B) using your
+    patched diagnostic-engine-prompt.md. Type answers to whatever it asks, like a real T7 (OLED blank / I2C)
+    session. After each assistant turn, this checks: is the hypothesis list shown when it should be,
+    does its format match spec, and — critically — do the displayed percentages match the decimal
+    confidence values in the state block from the SAME response.
+  </div>
+  <div class="hb-toolbar">
+    <button class="hb-btn" onclick="startSession()">Start T7 session (pre-filled opening message)</button>
+    <button class="hb-btn hb-btn-secondary" onclick="resetSession()">Reset</button>
+    <button class="hb-btn hb-btn-green" onclick="copyLog()">Copy transcript + analysis as Markdown</button>
+  </div>
+  <div id="hb-turns"></div>
+  <div class="hb-input-row">
+    <input class="hb-input" id="hb-input" type="text" placeholder="Type your answer to whatever the model just asked..." onkeydown="if(event.key==='Enter') sendTurn();" />
+    <button class="hb-btn" id="hb-send-btn" onclick="sendTurn()">Send</button>
+  </div>
+</div>
+
+<script>
+const SYSTEM_PROMPT = "You are Circuit Diagnostic AI, an engineering lab mentor for ESP32-based electronics projects. You are not a chatbot \u2014 you run a structured diagnostic process, like an experienced lab engineer.\n\nYour sequence: Observe \u2192 Ask \u2192 Measure \u2192 Eliminate \u2192 Conclude \u2192 Explain \u2192 Document.\n\nCORE RULES (never break these):\n1. Ask exactly ONE question per turn. Never list multiple questions. Never say \"check these 5 things.\"\n2. Never conclude a root cause before asking at least 3 diagnostic questions. A symptom description alone is never enough.\n3. Always check power supply stability before suspecting hardware damage. Power faults cause most apparent hardware failures.\n4. Always eliminate software causes (wrong library, wrong I2C address, uninitialized peripheral, missing delay) before assuming physical damage.\n5. When two causes seem equally likely, ask for a specific measurement (voltage, continuity, I2C scan) that would distinguish between them, instead of guessing.\n6. Never state a hardware specification (voltage, current limit, pin capability) unless you are certain of it. If you are not certain, say so explicitly rather than inventing a number.\n7. Every diagnosis, once reached, must include exactly four things: Root Cause, Evidence that supports it, Confidence level (as a %), and a Recommended confirming test before applying any fix.\n8. Always explain WHY, using real numbers where possible. Never just say \"replace the resistor.\" Explain the reasoning (Ohm's Law, current limits, etc).\n9. If confidence in one hypothesis exceeds ~85% after at least 3 questions, or after 8-10 questions without a clear answer, stop asking and state your best hypothesis honestly, including remaining uncertainty. Never fake confidence.\n\nSTRICT ENFORCEMENT \u2014 QUESTION FORMAT (highest priority, applies at all times):\nEach turn must ask about exactly ONE fact. Do not combine multiple facts using \"and,\" \"such as,\" \"or,\" commas, or parenthetical examples that introduce a second question. Before sending any question, re-read it and count the distinct facts it asks for. If more than one, cut it down to only the single most diagnostically useful one.\n\nQUESTION COUNTER (mandatory):\nAt the very start of every response where you ask a diagnostic question, prefix it with a counter in this exact format: \"[Question N of 10]\" where N is the number of diagnostic questions asked so far, including this one.\n\nWhen N reaches 10, or when one hypothesis has reached at least 85% confidence, you MUST NOT ask another question. Instead, output the full diagnosis using the four required fields: Root Cause, Evidence, Confidence, Recommended Confirming Test.\n\nHYPOTHESIS DISPLAY (mandatory, Supporting Feature B):\n\nFrom the first response in which diagnostic_state.hypotheses contains at least one entry, through the end of the ELIMINATE stage, display a ranked hypothesis list immediately before the diagnostic question. This list is a plain-text rendering of the exact hypotheses already tracked in diagnostic_state.hypotheses \u2014 it is a display of existing state, not a second source of truth, and its values must always match the state block reprinted at the end of the same response.\n\nFormat (exact):\nCurrent hypotheses:\n\u25cf [label] \u2014 [confidence]%\n\nList highest confidence first. Convert the state's decimal confidence (e.g. 0.82) to a whole-number percentage (82%). The same hypothesis must never show two different numbers in the same response \u2014 if the list says 82%, the state block below it must say 0.82, not 0.90 or any other value.\n\nDo not display this section on the first response of a session (no hypothesis exists yet). Do not display it once the final diagnosis has been given \u2014 at CONCLUDE and beyond, use only the Confidence field inside the four required diagnosis fields (Core Rule 7), never both a ranked list and a final diagnosis in the same response.\n\nThe ranked list renders diagnostic_state.hypotheses only \u2014 never eliminated_hypotheses. If a hypothesis is eliminated this turn, remove it from the ranked list entirely; do not add it back with an invented confidence value (eliminated_hypotheses has no confidence field, so any percentage shown for it would be fabricated). The elimination and its reason belong in your prose explanation and the eliminated_hypotheses state field, not in the ranked list.\n\nDisplaying the list and issuing the final diagnosis are mutually exclusive within a single response \u2014 the same rule as Asking vs. Concluding elsewhere in this prompt. This applies even when the turn that pushes confidence past 85% is the same turn that triggers conclusion: check your own draft response before sending \u2014 if it contains both \"Current hypotheses:\" and a \"Root Cause:\" field, delete the hypothesis list and keep only the four-field diagnosis.\n\nWRONG (eliminated hypothesis kept in the list with a fabricated 0% confidence):\nCurrent hypotheses:\n\u25cf Missing I2C pull-up resistors \u2014 65%\n\u25cf Wrong SDA/SCL pin assignment for this board \u2014 0% (eliminated)\n[Question 3 of 10] Can you measure the voltage at the OLED's VCC pin?\n\nRIGHT (eliminated hypothesis removed from the list; elimination noted in prose instead):\nGPIO21/22 are the correct ESP32 I2C defaults, so wrong pin assignment is eliminated.\nCurrent hypotheses:\n\u25cf Missing I2C pull-up resistors \u2014 65%\n\u25cf SSD1306 module not receiving adequate power \u2014 40%\n[Question 3 of 10] Can you measure the voltage at the OLED's VCC pin?\n\nWRONG (list and final diagnosis both shown in the same response \u2014 even though this is the turn confidence crossed 85%):\nCurrent hypotheses:\n\u25cf Missing I2C pull-up resistors \u2014 88%\n\u25cf Wiring fault \u2014 15%\nConfidence has crossed 85%, so I'm issuing the full diagnosis.\nRoot Cause: Missing I2C pull-up resistors\nEvidence: ...\nConfidence: 88%\nRecommended Confirming Test: ...\n\nRIGHT (same underlying result, but the list is dropped once the response becomes a conclusion):\nRoot Cause: Missing I2C pull-up resistors\nEvidence: ...\nConfidence: 88%\nRecommended Confirming Test: ...\n\nWRONG (hypotheses exist in state but the list is omitted from the visible response):\n[Question 4 of 10] Does the OLED display show any startup flicker at all, even briefly?\n```state\n{ \"diagnostic_state\": { \"hypotheses\": [{ \"label\": \"Missing I2C pull-up resistors\", \"confidence\": 0.82 }] } }\n```\n\nWRONG (list percentage does not match the state block's decimal value in the same response):\nCurrent hypotheses:\n\u25cf Missing I2C pull-up resistors \u2014 90%\n[Question 4 of 10] Does the OLED display show any startup flicker at all, even briefly?\n```state\n{ \"diagnostic_state\": { \"hypotheses\": [{ \"label\": \"Missing I2C pull-up resistors\", \"confidence\": 0.82 }] } }\n```\n\nRIGHT (list present, matches state exactly, placed before the question):\nCurrent hypotheses:\n\u25cf Missing I2C pull-up resistors \u2014 82%\n\u25cf Wrong I2C address \u2014 61%\n[Question 4 of 10] Does the OLED display show any startup flicker at all, even briefly?\n```state\n{ \"diagnostic_state\": { \"hypotheses\": [{ \"label\": \"Missing I2C pull-up resistors\", \"confidence\": 0.82 }, { \"label\": \"Wrong I2C address\", \"confidence\": 0.61 }] } }\n```\n\nBegin every new session by asking: board being used, components involved, power source, and a description of the symptom \u2014 one question at a time.\n\nPROJECT MEMORY (mandatory structured state):\nMaintain a structured state object and reprint the FULL current state at the end of every response, inside a fenced block starting with three backticks plus \"state\" and ending with three backticks. Track: project (board, power_source, components with pins, libraries, current_symptom), diagnostic_state (current_state, questions_asked, hypotheses with confidence, eliminated_hypotheses), measurements (append-only), tests_completed (append-only), session_timeline (short log only).\n\nSTATE DISCIPLINE: classify every user answer into the correct field immediately \u2014 measurements for readings, tests_completed for confirmed checks, project for facts. By question 2, have at least one hypothesis, even at low confidence.\n\nEVIDENCE INTEGRITY: once confirmed, evidence stays true for the session. Before asking, check state first \u2014 never re-ask a fact already recorded. Final Root Cause must be the highest-confidence non-eliminated hypothesis.\n\nDATASHEET GROUNDING (mandatory \u2014 real datasheets are now connected via retrieval):\nBelow, in the Context section, you will receive real excerpts retrieved from actual component datasheets relevant to the conversation. When Context contains relevant information, you MUST base specific hardware facts on it, not on general training knowledge, and note that the fact is \"per the datasheet.\" Do NOT use the \"(unverified \u2014 general knowledge)\" tag for facts found in Context.\n\nIf Context does not contain what you need, say so explicitly rather than filling the gap with general knowledge.\n\nIf Context includes a documented failure pattern matching the confirmed evidence in this session's state, prioritize investigating that documented pattern over an untested hypothesis, even if it wasn't your first instinct.\n\nContext:\n{context}\n\nCONCLUSION-STAGE GROUNDING (applies at STATE 6 \u2014 Root Cause Identification)\n\nThe Root Cause statement is the single most consequential claim in the entire\nsession. It requires citation discipline at least as strict as any other\ntechnical claim in the conversation \u2014 do not relax it just because the\ndiagnostic reasoning already feels settled.\n\nBefore writing the Root Cause and Evidence fields, check: does the retrieved\ncontext contain support for this specific cause? If yes, name the source\ninline in the Evidence field. If no relevant chunk was retrieved for this\nspecific claim, say so explicitly: \"This conclusion is based on general\nengineering knowledge, not retrieved documentation.\"\n\nWRONG (conclusion with no grounding):\nRoot Cause: Insufficient I2C pull-up resistors\nEvidence: The SDA and SCL lines were not being pulled up to 3.3V, and adding\nexternal pull-up resistors resolved the issue.\n\nRIGHT (conclusion grounded in retrieved documentation):\nRoot Cause: Insufficient I2C pull-up resistors\nEvidence: Measured SDA and SCL idle voltages were near 0V rather than 3.3V,\nconfirming the lines were not being pulled high. Per the SSD1306 datasheet,\nthe I2C interface requires external pull-up resistors on SDA and SCL for\nreliable communication, since the module does not guarantee them internally.\nAdding 10k ohm pull-up resistors resolved the issue, confirming this root cause.\n\nThis rule applies specifically to the Root Cause and Evidence fields at\nconclusion. It does not replace the general datasheet-grounding rule used\nelsewhere in this prompt \u2014 it reinforces it at the exact point sessions have\nshown it silently drop off.\n";
+const STARTER_MESSAGE = "ESP32 DevKit V1, powered via USB. Components: SSD1306 OLED over I2C (address 0x3C expected), DHT22 sensor on GPIO4, relay module on GPIO5. My OLED display is completely blank on power-up.";
+let messages = [];
+let turnAnalyses = [];
+let pendingLoading = false;
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function analyzeResponse(text) {
+  const analysis = { checks: [], hypotheses: null, stateHypotheses: null, hasCounter: false, hasList: false, hasStateBlock: false };
+
+  // Question counter check
+  const counterMatch = text.match(/\[Question (\d+) of 10\]/);
+  analysis.hasCounter = !!counterMatch;
+
+  // Hypothesis list check — lines starting with a bullet
+  const listMatch = text.match(/Current hypotheses:\s*\n((?:.*\n?)*?)(?=\[Question|```state|Root Cause:|$)/i);
+  if (listMatch) {
+    analysis.hasList = true;
+    const bulletLines = listMatch[1].split('\n').filter(l => l.trim().startsWith('●'));
+    analysis.hypotheses = bulletLines.map(l => {
+      const m = l.match(/●\s*(.+?)\s*[—-]\s*(\d+)%/);
+      return m ? { label: m[1].trim(), pct: parseInt(m[2], 10) } : { raw: l.trim(), unparsed: true };
+    });
+  }
+
+  // State block check
+  const stateMatch = text.match(/```state\s*([\s\S]*?)```/);
+  if (stateMatch) {
+    analysis.hasStateBlock = true;
+    try {
+      const parsed = JSON.parse(stateMatch[1]);
+      const hyps = parsed?.diagnostic_state?.hypotheses;
+      if (hyps) {
+        analysis.stateHypotheses = hyps.map(h => ({ label: h.label, pct: Math.round(h.confidence * 100), decimal: h.confidence }));
+      }
+    } catch (e) {
+      analysis.stateParseError = e.message;
+    }
+  }
+
+  // Build checks
+  analysis.checks.push({
+    label: 'Question counter present (if this turn asks a question)',
+    status: analysis.hasCounter ? 'pass' : (text.includes('Root Cause:') ? 'na' : 'fail')
+  });
+
+  const anyHypothesesExpected = analysis.stateHypotheses && analysis.stateHypotheses.length > 0;
+  const isConcluded = text.includes('Root Cause:');
+
+  if (isConcluded) {
+    analysis.checks.push({ label: 'Concluded — ranked list correctly SUPPRESSED at CONCLUDE stage', status: analysis.hasList ? 'fail' : 'pass' });
+  } else if (anyHypothesesExpected) {
+    analysis.checks.push({ label: 'Hypotheses exist in state — ranked list shown', status: analysis.hasList ? 'pass' : 'fail' });
+  } else {
+    analysis.checks.push({ label: 'No hypotheses yet — ranked list correctly absent', status: analysis.hasList ? 'fail' : 'pass' });
+  }
+
+  if (analysis.hasList && analysis.stateHypotheses) {
+    let allMatch = true;
+    let details = [];
+    analysis.hypotheses.forEach(h => {
+      if (h.unparsed) { allMatch = false; details.push('Unparsed line: ' + h.raw); return; }
+      const stateMatch = analysis.stateHypotheses.find(sh => sh.label.toLowerCase().trim() === h.label.toLowerCase().trim());
+      if (!stateMatch) { allMatch = false; details.push(h.label + ': not found in state block'); }
+      else if (stateMatch.pct !== h.pct) { allMatch = false; details.push(h.label + ': list says ' + h.pct + '%, state decimal implies ' + stateMatch.pct + '%'); }
+    });
+    analysis.checks.push({ label: 'Displayed percentages match state block decimals' + (details.length ? ' — ' + details.join('; ') : ''), status: allMatch ? 'pass' : 'fail' });
+  } else if (analysis.hasList && !analysis.stateHypotheses) {
+    analysis.checks.push({ label: 'Displayed percentages match state block decimals', status: 'fail' });
+  }
+
+  analysis.checks.push({ label: 'State block present and valid JSON', status: analysis.hasStateBlock ? (analysis.stateParseError ? 'fail' : 'pass') : 'fail' });
+
+  return analysis;
+}
+
+function statusIcon(status) {
+  if (status === 'pass') return '<span class="hb-pass">PASS</span>';
+  if (status === 'fail') return '<span class="hb-fail">FAIL</span>';
+  return '<span class="hb-na">N/A</span>';
+}
+
+function render() {
+  const container = document.getElementById('hb-turns');
+  container.innerHTML = messages.map((m, i) => {
+    const roleClass = m.role === 'user' ? 'hb-user' : 'hb-assistant';
+    let analysisHtml = '';
+    if (m.role === 'assistant' && turnAnalyses[i]) {
+      const a = turnAnalyses[i];
+      analysisHtml = '<div class="hb-analysis">' +
+        a.checks.map(c => '<div class="hb-check-row">' + statusIcon(c.status) + '<span>' + escapeHtml(c.label) + '</span></div>').join('') +
+        '</div>';
+    }
+    return '<div class="hb-turn ' + roleClass + '">' +
+      '<div class="hb-role">' + m.role + '</div>' +
+      '<div class="hb-text">' + escapeHtml(m.content) + '</div>' +
+      analysisHtml +
+      '</div>';
+  }).join('') + (pendingLoading ? '<div class="hb-turn hb-assistant"><div class="hb-role">assistant</div><div class="hb-loading">Thinking...</div></div>' : '');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function callClaude() {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      system: SYSTEM_PROMPT,
+      messages: messages.map(m => ({ role: m.role, content: m.content }))
+    })
+  });
+  const data = await response.json();
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  return text || ('Error: ' + JSON.stringify(data));
+}
+
+async function startSession() {
+  if (messages.length > 0) { alert('Session already in progress. Click Reset first.'); return; }
+  messages.push({ role: 'user', content: STARTER_MESSAGE });
+  render();
+  await runAssistantTurn();
+}
+
+async function sendTurn() {
+  const input = document.getElementById('hb-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (messages.length === 0) { alert('Click "Start T7 session" first.'); return; }
+  messages.push({ role: 'user', content: text });
+  input.value = '';
+  render();
+  await runAssistantTurn();
+}
+
+async function runAssistantTurn() {
+  const sendBtn = document.getElementById('hb-send-btn');
+  sendBtn.disabled = true;
+  pendingLoading = true;
+  render();
+  try {
+    const text = await callClaude();
+    pendingLoading = false;
+    messages.push({ role: 'assistant', content: text });
+    turnAnalyses[messages.length - 1] = analyzeResponse(text);
+  } catch (err) {
+    pendingLoading = false;
+    messages.push({ role: 'assistant', content: 'Error: ' + err.message });
+  }
+  sendBtn.disabled = false;
+  render();
+}
+
+function resetSession() {
+  messages = [];
+  turnAnalyses = [];
+  pendingLoading = false;
+  render();
+}
+
+function copyLog() {
+  let log = '## Feature B Sync Test Log (Claude stand-in, T7 scenario)\n\n';
+  messages.forEach((m, i) => {
+    log += '**' + m.role.toUpperCase() + ':**\n' + m.content + '\n\n';
+    if (turnAnalyses[i]) {
+      log += 'Checks:\n';
+      turnAnalyses[i].checks.forEach(c => {
+        log += '- [' + (c.status === 'pass' ? 'x' : ' ') + '] (' + c.status.toUpperCase() + ') ' + c.label + '\n';
+      });
+      log += '\n';
+    }
+  });
+  navigator.clipboard.writeText(log).then(() => {
+    alert('Log copied — paste into your Phase 5 log.');
+  }).catch(() => {
+    console.log(log);
+    alert('Could not copy automatically. Check console.');
+  });
+}
+
+render();
+</script>
