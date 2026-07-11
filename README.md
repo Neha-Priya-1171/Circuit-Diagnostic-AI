@@ -4,6 +4,24 @@ An AI-driven engineering reasoning platform built with **Flowise** and **Retriev
 
 Unlike standard one-shot AI chatbots, this platform enforces systematic hardware debugging through state-machine tracking, persistent project memory, and automated professional report generation.
 
+📄 [Read the full Product Requirements Document](./PRD.md) · 📜 [MIT License](./LICENSE)
+
+---
+
+## 📊 Results So Far
+
+Validated via a Claude-proxy test harness against real prompt logic before spending live Groq/Llama quota (see [Phase 5 log](./build-logs/PHASE5_LOG.md) for why this two-stage approach was used):
+
+| Test Case | What It Checks | Result |
+|---|---|---|
+| **T7** — OLED blank / I2C, full 3-run retest | Reaches the documented root cause (missing I2C pull-ups) with a real datasheet citation, not just the correct fault *category* | ✅ Pass on 3/3 runs for root cause; citation present on 1/3 (accepted — matches known Llama-3.3-70B turn-to-turn variance) |
+| **T13** — Guru Meditation panic | Mechanism-level reasoning (not just a bare label) for a firmware crash, with unsourced numbers flagged | ❌ Fail → ✅ Pass after 1 patch (2 consistent runs) |
+| **T17–T19** — Component Compatibility (12V relay, AMS1117 dropout, GPIO buzzer) | Correct compatibility verdict with numeric reasoning, including a safety-relevant source/sink current-limit check | ✅ Pass on all 3 (1 real safety bug caught and fixed pre-launch — see [Phase 4 log](./build-logs/PHASE4_LOG.md)) |
+| **Hypothesis Display sync** | Live confidence list stays in sync with internal state; never co-displayed with a final diagnosis | ❌ Fail (2 distinct bugs) → ✅ Pass after 2 patches (2 independent full sessions) |
+| **Learning Resources** — full T7 transcript | No invented datasheet section/page numbers when nothing was actually retrieved | ❌ Fail → ✅ Pass after 1 patch |
+
+**Pattern across every phase:** few-shot WRONG/RIGHT examples reliably fixed behavioral bugs that prose instructions alone could not, even after multiple prose-only attempts. Full evaluation methodology and the complete PRD-mandated 50-scenario test plan are in [PHASE5_LOG.md](./build-logs/PHASE5_LOG.md) and [PRD.md § 14](./PRD.md#14-testing-plan).
+
 ---
 
 ## 🚀 The Core Engineering Value
