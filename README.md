@@ -8,6 +8,12 @@ Unlike standard one-shot AI chatbots, this platform enforces systematic hardware
 
 ---
 
+## 🎯 Scope & Intent
+
+This version runs on shared infrastructure — a single Flowise Cloud account and one Groq API key — so it's built for individual or small-scale testing, not simultaneous multi-user public use, which would exhaust that shared quota. That's a deliberate scope choice, not an oversight: the goal here was hands-on depth across a full RAG stack — Pinecone for vector search, Cohere for embeddings, Flowise for orchestration, Groq for inference — understanding how each piece works and where it breaks, rather than building a production-scale service from the start.
+
+---
+
 ## 📊 Results So Far
 
 Validated via a Claude-proxy test harness against real prompt logic before spending live Groq/Llama quota (see [Phase 5 log](./build-logs/PHASE5_LOG.md) for why this two-stage approach was used):
@@ -34,7 +40,7 @@ As an Electronic and Communication Engineering (ECE) student, I built this to so
 
 ## 🛠️ Architecture & Tech Stack
 
-- **Orchestration Layer:** Flowise Cloud (No-code/Low-code AI agents)
+- **Orchestration Layer:** Flowise Cloud (No-code/Low-code AI workflow builder)
 - **Core LLM Processing:** ChatGroq (`llama-3.3-70b-versatile`)
 - **Retrieval-Augmented Generation (RAG):** Pinecone (Serverless) vector database, Cohere Embeddings (`embed-english-v3.0`)
 - **Context Grounding:** Official Espressif ESP32 Datasheets, SSD1306 Display driver specs, DHT22 specifications, AMS1117 LDO datasheet, and a custom-curated Common Failure Library.
